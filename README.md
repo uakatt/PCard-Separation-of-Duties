@@ -82,8 +82,6 @@ Files **modified** for this modification (4 files)
     /financial-system/kfs/branches/mod-jwingate/work/src/com/rsmart/kuali/kfs/fp/document/validation/impl/ProcurementCardHolderDetailRule.java
     /financial-system/kfs/branches/mod-jwingate/work/src/com/rsmart/kuali/kfs/fp/identity/ProcurementCardReconcilerDerivedRoleTypeServiceImpl.java
 
-<h2><a name="extra_files">Extra Files</a></h2>
-
 <h2><a name="post_mod_changes">Post Mod Changes</a></h2>
 
 For each file that was changed or added for this modification, I've looked at its history in subversion (`svn log <file_name>`) to find whether later fixes were committed against this modification that I might have missed. There were some :) They may be fixes to the modification, or further enhancements, or changes completely unrelated. Please contact the UA for more information about a given revision number, or Jira ticket. Here they are:
