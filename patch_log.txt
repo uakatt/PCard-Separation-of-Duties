@@ -1,0 +1,10 @@
+------------------------------------------------------------------------
+r9201 | jwingate | 2010-04-14 11:26:30 -0700 (Wed, 14 Apr 2010) | 1 line
+Changed paths:
+   M /financial-system/kfs/branches/mod-jwingate/work/src/arizona-ApplicationResources.properties
+   M /financial-system/kfs/branches/mod-jwingate/work/src/com/rsmart/kuali/kfs/fp/document/ProcurementCardDocument.java
+   M /financial-system/kfs/branches/mod-jwingate/work/src/com/rsmart/kuali/kfs/fp/document/validation/impl/ProcurementCardHolderDetailRule.java
+   M /financial-system/kfs/branches/mod-jwingate/work/src/com/rsmart/kuali/kfs/fp/identity/ProcurementCardReconcilerDerivedRoleTypeServiceImpl.java
+
+KITT-909 Prevent Cardholder Self Reconciliation
+------------------------------------------------------------------------

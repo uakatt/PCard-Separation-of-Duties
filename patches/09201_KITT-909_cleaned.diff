@@ -1,0 +1,199 @@
+Index: work/src/arizona-ApplicationResources.properties
+===================================================================
+--- work/src/arizona-ApplicationResources.properties	(revision 9200)
++++ work/src/arizona-ApplicationResources.properties	(revision 9201)
+@@ -26,3 +26,6 @@
+ document.question.return.text=You must enter a reason when Returning Document to Reconciler for correction.  The reason must be no more than 775 characters long.
+ message.return.noteTextIntro=Return To Reconciler reason -
+ error.document.return.reasonRequired=A reason is required in order to return the pCard back to Reconciler.  Click the no button to CANCEL the return to Reconciler action.
++
++# Prevent Cardholder Self Reconciliation - KITT-909
++warning.document.procurementcardholderdetail.cardholder.last.active=Cardholder is the only active member of the selected PCard Reconciler workgroup.
+\ No newline at end of file
+Index: work/src/com/rsmart/kuali/kfs/fp/identity/ProcurementCardReconcilerDerivedRoleTypeServiceImpl.java
+===================================================================
+--- work/src/com/rsmart/kuali/kfs/fp/identity/ProcurementCardReconcilerDerivedRoleTypeServiceImpl.java	(revision 9200)
++++ work/src/com/rsmart/kuali/kfs/fp/identity/ProcurementCardReconcilerDerivedRoleTypeServiceImpl.java	(revision 9201)
+@@ -29,16 +29,26 @@
+ 
+ public class ProcurementCardReconcilerDerivedRoleTypeServiceImpl extends KimDerivedRoleTypeServiceBase {
+     public static final String PROCUREMENT_CARD_RECONCILER_GROUP_ID = "cardGroupId";
++    public static final String PROCUREMENT_CARDHOLDER_USER_ID = "cardHolderSystemId";
++    
+     @Override
+     public List<RoleMembershipInfo> getRoleMembersFromApplicationRole(String namespaceCode, String roleName, AttributeSet qualification) {
+         String cardGroupId = qualification.get(PROCUREMENT_CARD_RECONCILER_GROUP_ID);
+-        String principalId = qualification.get(KimAttributes.PRINCIPAL_ID);
++        // KITT-909
++        String cardHolderSystemId = qualification.get(PROCUREMENT_CARDHOLDER_USER_ID);        
++        // KITT-909 end
+         List<String> groupMembers = new ArrayList<String>();
++        String principalId = qualification.get(KimAttributes.PRINCIPAL_ID);        
+         List<RoleMembershipInfo> members = new ArrayList<RoleMembershipInfo>();      
+-        if ((qualification != null) && StringUtils.isNotBlank(cardGroupId)) {
++        if ((qualification != null) && StringUtils.isNotBlank(cardGroupId)) {            
+             groupMembers = SpringContext.getBean(GroupService.class).getMemberPrincipalIds(cardGroupId);
+             for (String groupMember : groupMembers) {
+-                members.add(new RoleMembershipInfo(null, null, groupMember, Role.PRINCIPAL_MEMBER_TYPE, null));
++                // KITT-909
++                if (StringUtils.isNotBlank(cardHolderSystemId) && !groupMember.equals(cardHolderSystemId)) {
++                    //card holder cannot reconcile their own pcard transactions 
++                    members.add(new RoleMembershipInfo(null, null, groupMember, Role.PRINCIPAL_MEMBER_TYPE, null));
++                } 
++                // KITT-909 end
+             }            
+         }
+         else if ((qualification != null) && StringUtils.isNotBlank(principalId)) {
+Index: work/src/com/rsmart/kuali/kfs/fp/document/validation/impl/ProcurementCardHolderDetailRule.java
+===================================================================
+--- work/src/com/rsmart/kuali/kfs/fp/document/validation/impl/ProcurementCardHolderDetailRule.java	(revision 9200)
++++ work/src/com/rsmart/kuali/kfs/fp/document/validation/impl/ProcurementCardHolderDetailRule.java	(revision 9201)
+@@ -15,16 +15,19 @@
+  */
+ package com.rsmart.kuali.kfs.fp.document.validation.impl;
+ 
++import java.util.ArrayList;
+ import java.util.List;
+ 
+ import org.apache.commons.lang.StringUtils;
+-import org.kuali.kfs.coa.service.OrganizationService;
+ import org.kuali.kfs.coa.service.AccountService;
+ import org.kuali.kfs.coa.businessobject.Account;
+ import org.kuali.kfs.sys.KFSKeyConstants;
+ import org.kuali.kfs.sys.context.SpringContext;
++import org.kuali.rice.kns.maintenance.rules.MaintenanceDocumentRuleBase;
++import org.kuali.rice.kim.service.GroupService;
+ import org.kuali.rice.kns.document.MaintenanceDocument;
+-import org.kuali.rice.kns.maintenance.rules.MaintenanceDocumentRuleBase;
++import org.kuali.rice.kns.util.GlobalVariables;
++import org.kuali.rice.kns.util.KNSConstants;
+ import org.kuali.rice.kns.util.ObjectUtils;
+ 
+ import com.rsmart.kuali.kfs.fp.businessobject.ProcurementCardHolderDetail;
+@@ -33,39 +36,12 @@
+  * This class represents business rules for the procurement cardholder maintenance document
+  */
+ public class ProcurementCardHolderDetailRule extends MaintenanceDocumentRuleBase {
++    
++    protected static final String WARNING_CARDHOLDER_LAST_ACTIVE_MEMBER = "warning.document.procurementcardholderdetail.cardholder.last.active";
+ 
+     private ProcurementCardHolderDetail newProcurementCardHolderDetail;
+ 
+     /**
+-     *  Sets up a ProcurementCardHolderDetail convenience objects to make sure all possible sub-objects are populated
+-     * 
+-     * @see org.kuali.rice.kns.maintenance.rules.MaintenanceDocumentRuleBase#setupConvenienceObjects()
+-     */
+-    public void setupConvenienceObjects() {
+-
+-        newProcurementCardHolderDetail = (ProcurementCardHolderDetail) super.getNewBo();
+-    }
+-
+-    /**
+-     * Return true if rules for processing a save for the procurement cardholder maintenance document are are valid.
+-     * 
+-     * @param document maintenance document
+-     * @return true chart/account/organization is valid
+-     * 
+-     * @see org.kuali.rice.kns.maintenance.rules.MaintenanceDocumentRuleBase#processCustomSaveDocumentBusinessRules(org.kuali.rice.kns.document.MaintenanceDocument)
+-     */
+-    protected boolean processCustomSaveDocumentBusinessRules(MaintenanceDocument document) {
+-        // default to success
+-        boolean success = true;
+-        setupConvenienceObjects();
+-
+-        // check chart/account/organization is valid
+-        success &= checkAccountValidity();
+-
+-        return success;
+-    }
+-
+-    /**
+      * Returns value from processCustomRouteDocumentBusinessRules(document)
+      * 
+      * @param document maintenance document
+@@ -86,15 +62,20 @@
+      * 
+      * @see org.kuali.rice.kns.maintenance.rules.MaintenanceDocumentRuleBase#processCustomRouteDocumentBusinessRules(org.kuali.rice.kns.document.MaintenanceDocument)
+      */
++    @Override
+     protected boolean processCustomRouteDocumentBusinessRules(MaintenanceDocument document) {
+-        // default to success
+-        boolean success = true;
+-        setupConvenienceObjects();
+-
++        boolean continueRouting = super.processCustomRouteDocumentBusinessRules(document);
++        newProcurementCardHolderDetail = (ProcurementCardHolderDetail)document.getNewMaintainableObject().getBusinessObject();
++        
+         // check chart/account/organization is valid
+-        success &= checkAccountValidity();
++        continueRouting &= checkAccountValidity();
++        
++        // KITT-909
++        // check membership of reconciler group against cardholder ID
++        continueRouting &= checkGroupMembership();
++        // KITT-909 end
+ 
+-        return success;
++        return continueRouting;
+     }
+ 
+     /**
+@@ -120,12 +101,41 @@
+                     result = true;
+                 }
+                 if (!result) {
+-                    putFieldError("organizationCode", KFSKeyConstants.ERROR_DOCUMENT_GLOBAL_ACCOUNT_INVALID_ORG, new String[] { newProcurementCardHolderDetail.getAccountNumber(), newProcurementCardHolderDetail.getOrganizationCode()});              
++                    putFieldError("organizationCode", KFSKeyConstants.ERROR_DOCUMENT_GLOBAL_ACCOUNT_INVALID_ORG, new String[] {newProcurementCardHolderDetail.getAccountNumber(), newProcurementCardHolderDetail.getOrganizationCode()});              
+                 }
+             }               
+         }
+                 
+         return result;
+     }
+-
++    
++    // KITT-909
++    /**
++     * Returns true if cardholder is not only member of reconciler group
++     * 
++     * @return true if cardholder is not only member of reconciler group
++     */
++    
++    protected boolean checkGroupMembership() {
++        boolean result = true;
++      
++        // check that a reconciler group id and cardholder id have been entered
++        if (StringUtils.isNotBlank(newProcurementCardHolderDetail.getCardGroupId()) && StringUtils.isNotBlank(newProcurementCardHolderDetail.getCardHolderSystemId())) {           
++           
++            List<String> groupMembers = new ArrayList<String>();
++            groupMembers = SpringContext.getBean(GroupService.class).getMemberPrincipalIds(newProcurementCardHolderDetail.getCardGroupId());
++            for (String groupMember : groupMembers) {
++                if (groupMembers.size() < 2 && groupMember.equals(newProcurementCardHolderDetail.getCardHolderSystemId())) {
++                    //card holder is only remaining member of reconciler group 
++                    result = false;
++                }                
++            }
++            if (!result) { 
++                putGlobalError(WARNING_CARDHOLDER_LAST_ACTIVE_MEMBER);                                        
++            }
++        }
++        
++        return result;      
++    }
++    // KITT-909 end
+ }
+Index: work/src/com/rsmart/kuali/kfs/fp/document/ProcurementCardDocument.java
+===================================================================
+--- work/src/com/rsmart/kuali/kfs/fp/document/ProcurementCardDocument.java	(revision 9200)
++++ work/src/com/rsmart/kuali/kfs/fp/document/ProcurementCardDocument.java	(revision 9201)
+@@ -108,7 +108,8 @@
+     private boolean hasReconciler() {
+         return (ObjectUtils.isNotNull(getProcurementCardHolder()) && 
+                 ObjectUtils.isNotNull(getProcurementCardHolder().getProcurementCardHolderDetail()) &&
+-                ObjectUtils.isNotNull(getProcurementCardHolder().getProcurementCardHolderDetail().getCardGroupId()));
++                ObjectUtils.isNotNull(getProcurementCardHolder().getProcurementCardHolderDetail().getCardGroupId()) &&
++                ObjectUtils.isNotNull(getProcurementCardHolder().getProcurementCardHolderDetail().getCardHolderSystemId()));
+     }
+ 
+ 
